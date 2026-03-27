@@ -3,7 +3,7 @@
 ## Notes: Displays clickable flag carrier frames for Warsong Gulch
 ## Author: YourName
 ## Version: @project-version@
-## X-Curse-Project-ID: YOUR_PROJECT_ID_HERE
+## X-Curse-Project-ID: 1496766
 ## SavedVariables: WSGFlagTrackerDB
 
 WSGFlagTracker.lua
