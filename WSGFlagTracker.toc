@@ -1,0 +1,9 @@
+## Interface: 11502
+## Title: WSG Flag Tracker
+## Notes: Displays clickable flag carrier frames for Warsong Gulch
+## Author: YourName
+## Version: @project-version@
+## X-Curse-Project-ID: YOUR_PROJECT_ID_HERE
+## SavedVariables: WSGFlagTrackerDB
+
+WSGFlagTracker.lua
