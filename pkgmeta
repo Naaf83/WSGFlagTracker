@@ -1,0 +1,6 @@
+package-as: WSGFlagTracker
+
+ignore:
+  - .github
+  - .pkgmeta
+  - README.md
