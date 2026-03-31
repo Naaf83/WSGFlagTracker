@@ -24,10 +24,9 @@ local function IsInWSG()
 end
 
 -------------------------------------------------------------------------------
--- Frame factory — uses SecureActionButtonTemplate for protected TargetUnit
+-- Frame factory
 -------------------------------------------------------------------------------
 local function CreateFlagFrame(parent, side)
-    -- SecureActionButtonTemplate allows targeting without tainting
     local f = CreateFrame("Button", addonName .. side .. "Frame", parent,
                           "SecureActionButtonTemplate, BackdropTemplate")
     f:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
@@ -38,9 +37,9 @@ local function CreateFlagFrame(parent, side)
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     f:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
 
-    -- Secure attributes: left-click targets by name
-    f:SetAttribute("type1", "target")
-    f:SetAttribute("unit1", nil) -- will be set to player name when carrier is known
+    -- Set macro type once at creation — macrotext is safe to update out of combat
+    f:SetAttribute("type1", "macro")
+    f:SetAttribute("macrotext", "")
 
     f:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -73,7 +72,7 @@ local function CreateFlagFrame(parent, side)
     nameText:SetTextColor(0.8, 0.8, 0.8, 1)
     f.nameText = nameText
 
-    -- Right-click prints name to chat (non-protected, safe to do in OnClick)
+    -- Right-click prints name to chat
     f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     f:SetScript("PostClick", function(self, button)
         if button == "RightButton" then
@@ -121,36 +120,50 @@ local hordeFrame = CreateFlagFrame(mainFrame, "Horde")
 hordeFrame:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 0, -(FRAME_HEIGHT + 6))
 
 -------------------------------------------------------------------------------
--- Update displayed names and secure target attributes
+-- Update frames — only update attributes out of combat
 -------------------------------------------------------------------------------
+local pendingUpdate = false
+
+local function ApplyAttributes()
+    if InCombatLockdown() then
+        pendingUpdate = true
+        return
+    end
+    if allianceFlagCarrier then
+        allianceFrame:SetAttribute("macrotext", "/targetexact " .. allianceFlagCarrier)
+    else
+        allianceFrame:SetAttribute("macrotext", "")
+    end
+    if hordeFlagCarrier then
+        hordeFrame:SetAttribute("macrotext", "/targetexact " .. hordeFlagCarrier)
+    else
+        hordeFrame:SetAttribute("macrotext", "")
+    end
+    pendingUpdate = false
+end
+
 local function UpdateFrames()
     if allianceFlagCarrier then
         allianceFrame.nameText:SetText(allianceFlagCarrier)
         allianceFrame.nameText:SetTextColor(0.2, 1.0, 0.2, 1)
         allianceFrame:SetBackdropBorderColor(0.2, 1.0, 0.2, 1)
-        allianceFrame:SetAttribute("unit1", nil)
-        allianceFrame:SetAttribute("type1", "target")
-        allianceFrame:SetAttribute("target-exact", allianceFlagCarrier)
     else
         allianceFrame.nameText:SetText("No flag carrier")
         allianceFrame.nameText:SetTextColor(0.8, 0.8, 0.8, 1)
         allianceFrame:SetBackdropBorderColor(ALLIANCE_COLOR.r, ALLIANCE_COLOR.g, ALLIANCE_COLOR.b, 1)
-        allianceFrame:SetAttribute("type1", nil)
     end
 
     if hordeFlagCarrier then
         hordeFrame.nameText:SetText(hordeFlagCarrier)
         hordeFrame.nameText:SetTextColor(1.0, 0.6, 0.1, 1)
         hordeFrame:SetBackdropBorderColor(1.0, 0.6, 0.1, 1)
-        hordeFrame:SetAttribute("unit1", nil)
-        hordeFrame:SetAttribute("type1", "target")
-        hordeFrame:SetAttribute("target-exact", hordeFlagCarrier)
     else
         hordeFrame.nameText:SetText("No flag carrier")
         hordeFrame.nameText:SetTextColor(0.8, 0.8, 0.8, 1)
         hordeFrame:SetBackdropBorderColor(HORDE_COLOR.r, HORDE_COLOR.g, HORDE_COLOR.b, 1)
-        hordeFrame:SetAttribute("type1", nil)
     end
+
+    ApplyAttributes()
 end
 
 -------------------------------------------------------------------------------
@@ -170,34 +183,24 @@ end
 
 -------------------------------------------------------------------------------
 -- Parse BG system messages
--- Actual Classic Era 1.15.x formats:
---   "The Alliance Flag was picked up by Jeebay!"
---   "The Horde flag was picked up by Pornhad!"
---   "The Alliance Flag was dropped by Jeebay!"
---   "The Horde flag was dropped by Pornhad!"
---   "The Alliance Flag was returned to its base by Eduard!"
---   "The Horde flag was returned to its base by Emolex-Ashbringer!"
 -------------------------------------------------------------------------------
 local function OnBGSystemMessage(self, event, msg)
     if not isInWSG or not msg then return end
 
     local lmsg = msg:lower()
 
-    -- Alliance flag picked up → Horde player is now EFC
     if lmsg:match("the alliance flag was picked up by") then
         hordeFlagCarrier = msg:match("[Tt]he [Aa]lliance [Ff]lag was picked up by (.+)!")
         UpdateFrames()
         return
     end
 
-    -- Horde flag picked up → Alliance player is now EFC
     if lmsg:match("the horde flag was picked up by") then
         allianceFlagCarrier = msg:match("[Tt]he [Hh]orde [Ff]lag was picked up by (.+)!")
         UpdateFrames()
         return
     end
 
-    -- Alliance flag dropped / returned / captured → clear Horde FC
     if lmsg:match("the alliance flag was dropped")
     or lmsg:match("the alliance flag was returned")
     or lmsg:match("captured the alliance flag") then
@@ -206,7 +209,6 @@ local function OnBGSystemMessage(self, event, msg)
         return
     end
 
-    -- Horde flag dropped / returned / captured → clear Alliance FC
     if lmsg:match("the horde flag was dropped")
     or lmsg:match("the horde flag was returned")
     or lmsg:match("captured the horde flag") then
@@ -227,6 +229,7 @@ eventFrame:RegisterEvent("ZONE_CHANGED")
 eventFrame:RegisterEvent("CHAT_MSG_BG_SYSTEM_ALLIANCE")
 eventFrame:RegisterEvent("CHAT_MSG_BG_SYSTEM_HORDE")
 eventFrame:RegisterEvent("CHAT_MSG_BG_SYSTEM_NEUTRAL")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -247,6 +250,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         or event == "CHAT_MSG_BG_SYSTEM_HORDE"
         or event == "CHAT_MSG_BG_SYSTEM_NEUTRAL" then
         OnBGSystemMessage(self, event, ...)
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat ended — apply any pending attribute updates
+        if pendingUpdate then
+            ApplyAttributes()
+        end
     end
 end)
 
