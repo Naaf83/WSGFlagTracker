@@ -6,10 +6,10 @@ local addonName = "WSGFlagTracker"
 WSGFlagTrackerDB = WSGFlagTrackerDB or {}
 
 local allianceFlagCarrier = nil
-local hordeFlagCarrier = nil
-local isInWSG = false
+local hordeFlagCarrier    = nil
+local isInWSG             = false
 
-local ALLIANCE_COLOR = { r = 0.0, g = 0.44, b = 0.87 }
+local ALLIANCE_COLOR = { r = 0.0,  g = 0.44, b = 0.87 }
 local HORDE_COLOR    = { r = 0.87, g = 0.12, b = 0.12 }
 local FRAME_WIDTH    = 220
 local FRAME_HEIGHT   = 50
@@ -20,24 +20,16 @@ local FRAME_HEIGHT   = 50
 local function IsInWSG()
     local _, instanceType = IsInInstance()
     if instanceType ~= "pvp" then return false end
-    local zone = GetRealZoneText()
-    return (zone == "Warsong Gulch")
+    return (GetRealZoneText() == "Warsong Gulch")
 end
 
 -------------------------------------------------------------------------------
--- Target a player by name
--------------------------------------------------------------------------------
-local function TargetByName(name)
-    if name then
-        TargetUnit(name)
-    end
-end
-
--------------------------------------------------------------------------------
--- Frame factory
+-- Frame factory — uses SecureActionButtonTemplate for protected TargetUnit
 -------------------------------------------------------------------------------
 local function CreateFlagFrame(parent, side)
-    local f = CreateFrame("Button", addonName .. side .. "Frame", parent, "BackdropTemplate")
+    -- SecureActionButtonTemplate allows targeting without tainting
+    local f = CreateFrame("Button", addonName .. side .. "Frame", parent,
+                          "SecureActionButtonTemplate, BackdropTemplate")
     f:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     f:SetMovable(true)
     f:SetClampedToScreen(true)
@@ -46,11 +38,15 @@ local function CreateFlagFrame(parent, side)
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     f:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
 
+    -- Secure attributes: left-click targets by name
+    f:SetAttribute("type1", "target")
+    f:SetAttribute("unit1", nil) -- will be set to player name when carrier is known
+
     f:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile     = true, tileSize = 16, edgeSize = 16,
-        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
 
     local color = (side == "Alliance") and ALLIANCE_COLOR or HORDE_COLOR
@@ -65,13 +61,11 @@ local function CreateFlagFrame(parent, side)
     icon:SetSize(36, 36)
     icon:SetPoint("LEFT", f, "LEFT", 8, 0)
     icon:SetTexture(iconTex)
-    f.icon = icon
 
     local label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("TOPLEFT", f, "TOPLEFT", 50, -8)
     label:SetText(side .. " FC")
     label:SetTextColor(color.r, color.g, color.b, 1)
-    f.label = label
 
     local nameText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     nameText:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 50, 8)
@@ -79,18 +73,16 @@ local function CreateFlagFrame(parent, side)
     nameText:SetTextColor(0.8, 0.8, 0.8, 1)
     f.nameText = nameText
 
-    f:SetScript("OnClick", function(self, button)
-        if button == "LeftButton" then
-            local carrier = (side == "Alliance") and allianceFlagCarrier or hordeFlagCarrier
-            if carrier then TargetByName(carrier) end
-        elseif button == "RightButton" then
+    -- Right-click prints name to chat (non-protected, safe to do in OnClick)
+    f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    f:SetScript("PostClick", function(self, button)
+        if button == "RightButton" then
             local carrier = (side == "Alliance") and allianceFlagCarrier or hordeFlagCarrier
             if carrier then
                 print("|cff00ccff[WSGFlagTracker]|r " .. side .. " FC: " .. carrier)
             end
         end
     end)
-    f:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     f:SetScript("OnEnter", function(self)
         local carrier = (side == "Alliance") and allianceFlagCarrier or hordeFlagCarrier
@@ -129,27 +121,35 @@ local hordeFrame = CreateFlagFrame(mainFrame, "Horde")
 hordeFrame:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 0, -(FRAME_HEIGHT + 6))
 
 -------------------------------------------------------------------------------
--- Update displayed names
+-- Update displayed names and secure target attributes
 -------------------------------------------------------------------------------
 local function UpdateFrames()
     if allianceFlagCarrier then
         allianceFrame.nameText:SetText(allianceFlagCarrier)
         allianceFrame.nameText:SetTextColor(0.2, 1.0, 0.2, 1)
         allianceFrame:SetBackdropBorderColor(0.2, 1.0, 0.2, 1)
+        allianceFrame:SetAttribute("unit1", nil)
+        allianceFrame:SetAttribute("type1", "target")
+        allianceFrame:SetAttribute("target-exact", allianceFlagCarrier)
     else
         allianceFrame.nameText:SetText("No flag carrier")
         allianceFrame.nameText:SetTextColor(0.8, 0.8, 0.8, 1)
         allianceFrame:SetBackdropBorderColor(ALLIANCE_COLOR.r, ALLIANCE_COLOR.g, ALLIANCE_COLOR.b, 1)
+        allianceFrame:SetAttribute("type1", nil)
     end
 
     if hordeFlagCarrier then
         hordeFrame.nameText:SetText(hordeFlagCarrier)
         hordeFrame.nameText:SetTextColor(1.0, 0.6, 0.1, 1)
         hordeFrame:SetBackdropBorderColor(1.0, 0.6, 0.1, 1)
+        hordeFrame:SetAttribute("unit1", nil)
+        hordeFrame:SetAttribute("type1", "target")
+        hordeFrame:SetAttribute("target-exact", hordeFlagCarrier)
     else
         hordeFrame.nameText:SetText("No flag carrier")
         hordeFrame.nameText:SetTextColor(0.8, 0.8, 0.8, 1)
         hordeFrame:SetBackdropBorderColor(HORDE_COLOR.r, HORDE_COLOR.g, HORDE_COLOR.b, 1)
+        hordeFrame:SetAttribute("type1", nil)
     end
 end
 
@@ -170,43 +170,35 @@ end
 
 -------------------------------------------------------------------------------
 -- Parse BG system messages
---
--- Actual in-game message formats observed in Classic Era 1.15.8:
+-- Actual Classic Era 1.15.x formats:
 --   "The Alliance Flag was picked up by Jeebay!"
 --   "The Horde flag was picked up by Pornhad!"
 --   "The Alliance Flag was dropped by Jeebay!"
 --   "The Horde flag was dropped by Pornhad!"
 --   "The Alliance Flag was returned to its base by Eduard!"
 --   "The Horde flag was returned to its base by Emolex-Ashbringer!"
---
--- Note: "Flag" is capitalised for Alliance, lowercase for Horde.
--- Patterns are case-insensitive via string.lower() to handle both.
 -------------------------------------------------------------------------------
 local function OnBGSystemMessage(self, event, msg)
     if not isInWSG or not msg then return end
 
     local lmsg = msg:lower()
-    local name
 
-    -- Alliance flag picked up (by a Horde player)
-    name = lmsg:match("the alliance flag was picked up by (.+)!")
-    if name then
-        -- Grab original-case name from original msg
+    -- Alliance flag picked up → Horde player is now EFC
+    if lmsg:match("the alliance flag was picked up by") then
         hordeFlagCarrier = msg:match("[Tt]he [Aa]lliance [Ff]lag was picked up by (.+)!")
         UpdateFrames()
         return
     end
 
-    -- Horde flag picked up (by an Alliance player)
-    name = lmsg:match("the horde flag was picked up by (.+)!")
-    if name then
+    -- Horde flag picked up → Alliance player is now EFC
+    if lmsg:match("the horde flag was picked up by") then
         allianceFlagCarrier = msg:match("[Tt]he [Hh]orde [Ff]lag was picked up by (.+)!")
         UpdateFrames()
         return
     end
 
-    -- Alliance flag dropped or returned or captured → clear Horde carrier
-    if lmsg:match("the alliance flag was dropped by")
+    -- Alliance flag dropped / returned / captured → clear Horde FC
+    if lmsg:match("the alliance flag was dropped")
     or lmsg:match("the alliance flag was returned")
     or lmsg:match("captured the alliance flag") then
         hordeFlagCarrier = nil
@@ -214,8 +206,8 @@ local function OnBGSystemMessage(self, event, msg)
         return
     end
 
-    -- Horde flag dropped or returned or captured → clear Alliance carrier
-    if lmsg:match("the horde flag was dropped by")
+    -- Horde flag dropped / returned / captured → clear Alliance FC
+    if lmsg:match("the horde flag was dropped")
     or lmsg:match("the horde flag was returned")
     or lmsg:match("captured the horde flag") then
         allianceFlagCarrier = nil
